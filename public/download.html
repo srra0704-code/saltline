@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Saltline 下载 · 安卓安装包</title>
+<style>
+:root{color-scheme:dark;--ink:#0b0d0f;--bone:#e8e4da;--dim:rgba(232,228,218,.62);--signal:#ffb347;--line:rgba(232,228,218,.16)}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(120% 70% at 50% -10%,rgba(255,179,71,.12),transparent 60%),var(--ink);
+color:var(--bone);font:15px/1.65 system-ui,-apple-system,"PingFang SC",sans-serif;padding:22px 16px 60px}
+.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-size:26px;letter-spacing:.14em;margin:0}
+.sub{font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.3em;color:var(--dim);text-transform:uppercase}
+.card{border:1px solid var(--line);border-radius:8px;padding:16px;background:rgba(20,24,27,.75)}
+h2{font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:var(--signal);margin:0 0 8px}
+a.btn,button.btn{display:inline-block;padding:12px 18px;border-radius:5px;border:0;cursor:pointer;
+background:linear-gradient(180deg,#ffc977,#d2622a);color:#16110a;font-weight:800;text-decoration:none;letter-spacing:.06em}
+a.ghost{border:1px solid var(--line);color:var(--bone);background:transparent;font-weight:500}
+ol{padding-left:20px;margin:8px 0 0}
+li{margin:4px 0}
+code{font-family:ui-monospace,Menlo,monospace;background:rgba(232,228,218,.08);padding:1px 5px;border-radius:3px;font-size:12.5px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.note{font-size:12.5px;color:var(--dim)}
+.big{font-size:20px;font-weight:800;letter-spacing:.05em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>SALTLINE 雨夜港口</h1>
+    <div class="sub">Android APK · PWA · 联机 FPS</div>
+  </div>
+
+  <div class="card">
+    <h2>安卓安装包</h2>
+    <div class="big" id="apkState">检查中…</div>
+    <div class="row" style="margin-top:12px">
+      <a class="btn" id="apkLink" href="/saltline.apk" download>下载 APK</a>
+      <a class="btn ghost" href="/">直接在浏览器里玩</a>
+    </div>
+    <div class="note" style="margin-top:12px">
+      安装后首次启动会让你填服务器地址（例如本页的域名，或局域网 <code>http://192.168.x.x:8080</code>）。
+      也可以「添加到主屏幕」用 PWA 方式安装：Chrome 菜单 → 添加到主屏幕，一样全屏横屏。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>安装步骤</h2>
+    <ol>
+      <li>点上面的「下载 APK」，浏览器会保存安装包。</li>
+      <li>打开文件管理器点击 APK，允许「安装未知应用」。</li>
+      <li>启动 Saltline，填入服务器地址，进入大厅。</li>
+      <li>大厅里可以：看公告、加好友、组队、买皮肤、看排行榜、打单挑。</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>玩法</h2>
+    <ol>
+      <li><b>搜打撤</b>：搜箱拿战利品，带价值活着走到撤离点。死了身上的东西全没。</li>
+      <li><b>大战场</b>：两队抢三个点，票数先掉光的一方输，可以无限复活。</li>
+      <li><b>单挑</b>：一对一先赢 3 回合，段位分按胜负结算。</li>
+      <li><b>中继破坏</b>：切断三座上行中继，无人机和机器狗会来找你。</li>
+    </ol>
+    <div class="note" style="margin-top:8px">触屏：左摇杆移动，右半屏拖动转视角，右摇杆也能转；开火/瞄准/换弹/蹲/跳/交互在右下角；V 键（或「舞蹈」按钮）打开表情轮盘。</div>
+  </div>
+
+  <div class="card">
+    <h2>自建服务器（可选）</h2>
+    <div class="note">把本仓库拷到任意有 Node.js 18+ 的机器：</div>
+    <ol>
+      <li><code>npm install</code></li>
+      <li><code>npm start</code>（默认 8080 端口，可用 <code>PORT=9000 npm start</code>）</li>
+      <li>后台地址 <code>/admin</code>，密码用 <code>ADMIN_PASSWORD</code> 环境变量指定</li>
+      <li>公网：<code>TUNNEL=cloudflared npm start</code> 会顺手拉起临时公网地址，或 <code>npm run tunnel</code></li>
+    </ol>
+  </div>
+</div>
+<script>
+(async () => {
+  try {
+    const r = await fetch('/api/apk').then((x) => x.json());
+    if (r.exists) {
+      document.getElementById('apkState').textContent = `已就绪 · ${(r.size / 1048576).toFixed(1)} MB`;
+    } else {
+      document.getElementById('apkState').textContent = '安装包未构建';
+      document.getElementById('apkLink').style.display = 'none';
+    }
+  } catch (e) {
+    document.getElementById('apkState').textContent = '无法读取安装包信息';
+  }
+})();
+</script>
+</body>
+</html>

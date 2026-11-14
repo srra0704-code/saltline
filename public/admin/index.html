@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Saltline 管理后台</title>
+<style>
+:root{color-scheme:dark;--ink:#0b0d0f;--ink2:#14181b;--ink3:#1d2327;--bone:#e8e4da;--dim:rgba(232,228,218,.6);
+--signal:#ffb347;--alarm:#ff5a40;--ok:#7ddc8a;--line:rgba(232,228,218,.16);--blue:#5aa9ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--bone);font:13px/1.5 system-ui,-apple-system,"PingFang SC",sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);
+  background:linear-gradient(90deg,rgba(210,98,42,.2),transparent)}
+h1{margin:0;font-size:16px;letter-spacing:.14em}
+h2{margin:0 0 8px;font-size:13px;letter-spacing:.12em;color:var(--signal);text-transform:uppercase}
+main{padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;max-width:1500px;margin:0 auto}
+.card{border:1px solid var(--line);border-radius:6px;padding:12px;background:var(--ink2)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px}
+.kpi{border:1px solid var(--line);border-radius:4px;padding:8px;background:rgba(232,228,218,.04)}
+.kpi span{display:block;font-size:10px;color:var(--dim);letter-spacing:.15em;text-transform:uppercase}
+.kpi b{font-size:18px;color:var(--signal)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+.scroll{max-height:280px;overflow:auto}
+button{font:inherit;padding:7px 11px;border-radius:4px;border:1px solid var(--line);background:var(--ink3);color:var(--bone);cursor:pointer}
+button.primary{background:linear-gradient(180deg,#ffc977,#d2622a);border:0;color:#16110a;font-weight:700}
+button.danger{border-color:rgba(255,90,64,.6);color:#ffb3a6}
+button.tiny{padding:3px 7px;font-size:11px}
+input,textarea,select{font:inherit;background:var(--ink);color:var(--bone);border:1px solid var(--line);border-radius:4px;padding:7px 9px;width:100%}
+textarea{min-height:64px;resize:vertical}
+#login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 30%,#15191c,#070809);z-index:9}
+#login .card{width:min(360px,92vw);display:flex;flex-direction:column;gap:10px}
+#logs{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;max-height:240px;overflow:auto;background:#0a0c0e;border:1px solid var(--line);border-radius:4px;padding:8px}
+#logs div{padding:1px 0}
+.k-info{color:var(--dim)}.k-player{color:var(--blue)}.k-admin{color:var(--signal)}.k-error{color:var(--alarm)}.k-system{color:var(--ok)}
+.tag{font-size:10px;padding:1px 5px;border:1px solid var(--line);border-radius:3px;color:var(--dim)}
+.hidden{display:none!important}
+.hint{font-size:11px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div id="login">
+  <div class="card">
+    <h1>SALTLINE 管理后台</h1>
+    <input id="pw" type="password" placeholder="管理员密码" autocomplete="current-password">
+    <button id="btnLogin" class="primary">登录</button>
+    <div class="hint" id="loginHint">首次启动时，密码会打印在服务器控制台。</div>
+  </div>
+</div>
+
+<header class="hidden" id="top">
+  <h1>SALTLINE 管理后台</h1>
+  <span class="tag" id="verTag">v0.3</span>
+  <span class="hint" id="connTag">实时日志：连接中…</span>
+  <span style="margin-left:auto"></span>
+  <button id="btnRefresh">刷新</button>
+  <button id="btnLogout" class="danger">退出登录</button>
+</header>
+
+<main class="hidden" id="main">
+  <section class="card">
+    <h2>运行状态</h2>
+    <div class="grid" id="kpis"></div>
+    <div class="row" style="margin-top:10px">
+      <input id="motd" placeholder="大厅提示语（MOTD）">
+      <button id="btnMotd" class="tiny">保存</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>全服广播</h2>
+    <div class="row"><input id="bcText" placeholder="发送到所有对局与大厅"><button id="btnBroadcast" class="primary">发送</button></div>
+    <h2 style="margin-top:12px">房间</h2>
+    <div class="scroll"><table id="rooms"></table></div>
+    <div class="row" style="margin-top:8px">
+      <select id="newRoomMode"><option value="battlefield">大战场</option><option value="extract">搜打撤</option><option value="relay">中继破坏</option><option value="duel">单挑</option></select>
+      <button id="btnNewRoom" class="tiny">新建房间</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>公告系统</h2>
+    <input id="anTitle" placeholder="标题">
+    <textarea id="anBody" placeholder="公告内容"></textarea>
+    <div class="row"><button id="btnAnnounce" class="primary">发布公告</button><span class="hint">发布后大厅与对局内即时可见</span></div>
+    <div class="scroll" id="anList" style="margin-top:10px"></div>
+  </section>
+
+  <section class="card">
+    <h2>房间详情 <span class="hint" id="roomPick">未选择</span></h2>
+    <div class="scroll" id="roomDetail"><div class="hint">点击上表房间查看玩家列表</div></div>
+  </section>
+
+  <section class="card">
+    <h2>账号管理</h2>
+    <div class="row"><input id="accSearch" placeholder="搜索呼号/ID"><button id="btnAccSearch" class="tiny">搜索</button></div>
+    <div class="scroll"><table id="accounts"></table></div>
+    <div class="row" style="margin-top:8px">
+      <input id="grantId" placeholder="账号 ID" style="max-width:220px">
+      <input id="grantAmt" placeholder="发放港币" style="max-width:120px">
+      <button id="btnGrant" class="tiny">发放</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>封禁（IP / 账号）</h2>
+    <div class="row"><input id="banIp" placeholder="IP 地址"><button id="btnBanIp" class="tiny danger">封禁 IP</button></div>
+    <div class="scroll" id="banList" style="margin-top:8px"></div>
+  </section>
+
+  <section class="card">
+    <h2>排行榜快照</h2>
+    <div class="scroll"><table id="lb"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>客户端报错（玩家端真实报错）</h2>
+    <div class="scroll" id="clientErrors"><div class="hint">暂无</div></div>
+  </section>
+
+  <section class="card">
+    <h2>实时日志</h2>
+    <div id="logs"></div>
+  </section>
+
+  <section class="card">
+    <h2>修改后台密码</h2>
+    <div class="row"><input id="newPw" type="password" placeholder="新密码（至少 4 位）"><button id="btnPw" class="tiny">保存</button></div>
+    <div class="hint">修改后所有后台会话会失效。</div>
+  </section>
+</main>
+
+<script type="module" src="/admin/admin.js"></script>
+</body>
+</html>

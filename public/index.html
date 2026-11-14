@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0b0d0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="Saltline 雨夜港口 FPS：搜打撤 / 大战场 / 单挑 / 中继破坏，公网联机">
+<title>Saltline · 雨夜港口</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- ==================== 大厅 / 主界面 ==================== -->
+<div id="boot" class="screen">
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand-mini">SALTLINE<em>雨夜港口</em></div>
+      <div class="me">
+        <div class="me-tier" id="topTier">新兵</div>
+        <div class="me-name" id="topName">未登录</div>
+      </div>
+      <div class="me-cur"><b id="topCur">0</b><span>港币</span></div>
+      <button class="btn ghost small" id="btnProfile">档案</button>
+      <button class="btn ghost small" id="btnSettings">设置</button>
+      <span class="dim small" id="netState">连接中…</span>
+    </header>
+
+    <nav class="tabs" id="tabbar">
+      <button class="tab on" data-tab="home">大厅</button>
+      <button class="tab" data-tab="notice">公告</button>
+      <button class="tab" data-tab="mode">对战</button>
+      <button class="tab" data-tab="duel">单挑</button>
+      <button class="tab" data-tab="party">组队</button>
+      <button class="tab" data-tab="friend">好友</button>
+      <button class="tab" data-tab="shop">商店</button>
+      <button class="tab" data-tab="event">活动</button>
+      <button class="tab" data-tab="rank">排行榜</button>
+      <button class="tab" data-tab="profile">段位</button>
+    </nav>
+
+    <main class="panes" id="panes">
+      <!-- 大厅 -->
+      <section class="pane on" data-pane="home">
+        <div class="card hero">
+          <div class="hero-l">
+            <div class="hero-title">雨夜 · 集装箱港</div>
+            <div class="hero-sub" id="motdLine">左舷三号泊位，雨一直在下。</div>
+            <div class="row gap wrap">
+              <button id="btnPlay" class="btn primary">快速开始</button>
+              <button id="btnMode" class="btn">选择模式</button>
+            </div>
+          </div>
+          <div class="hero-r">
+            <div class="stat"><span>在线</span><b id="homeOnline">0</b></div>
+            <div class="stat"><span>房间</span><b id="homeRooms">0</b></div>
+            <div class="stat"><span>今日任务</span><b id="homeMission">0/5</b></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">最新公告<button class="btn tiny ghost" data-goto="notice">全部</button></div>
+          <div id="homeNotice" class="notice-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">每日任务<button class="btn tiny ghost" id="btnCheckin">签到</button></div>
+          <div id="missionList" class="mission-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">进行中的房间</div>
+          <div id="roomList" class="room-list"></div>
+        </div>
+
+        <label class="field">
+          <span>呼号</span>
+          <input id="callsign" maxlength="14" autocomplete="off" spellcheck="false" placeholder="OPERATOR">
+        </label>
+        <label class="field">
+          <span>服务器地址（留空 = 当前站点；也可填 ws://ip:端口/ws）</span>
+          <input id="serverUrl" autocomplete="off" spellcheck="false" placeholder="留空使用当前站点">
+        </label>
+      </section>
+
+      <!-- 公告 -->
+      <section class="pane" data-pane="notice">
+        <div class="card"><div class="card-h">游戏公告</div><div id="noticeList" class="notice-list"></div></div>
+      </section>
+
+      <!-- 对战 -->
+      <section class="pane" data-pane="mode">
+        <div class="modes" id="modeList"></div>
+        <div class="card">
+          <div class="card-h">房间列表</div>
+          <div id="roomList2" class="room-list"></div>
+        </div>
+        <button id="btnTraining" class="btn wide">AI 训练房（中继破坏 · 打机器人）</button>
+      </section>
+
+      <!-- 单挑 -->
+      <section class="pane" data-pane="duel">
+        <div class="card">
+          <div class="card-h">单挑 1V1</div>
+          <p class="dim">一对一，先赢 3 回合。段位分按胜负结算，胜者拿走全场奖励。</p>
+          <div class="duel-stat" id="duelStat"></div>
+          <div class="row gap">
+            <button id="btnDuel" class="btn primary">开始匹配</button>
+            <button id="btnDuelCancel" class="btn">取消匹配</button>
+          </div>
+          <div class="hint" id="duelHint"></div>
+        </div>
+      </section>
+
+      <!-- 组队 -->
+      <section class="pane" data-pane="party">
+        <div class="card">
+          <div class="card-h">队伍（最多 4 人）</div>
+          <div id="partyPanel" class="party"></div>
+          <div class="row gap wrap">
+            <button id="btnPartyCreate" class="btn">创建队伍</button>
+            <button id="btnPartyLeave" class="btn ghost">退出队伍</button>
+          </div>
+          <label class="field"><span>加入队伍（队码或队长呼号）</span><input id="partyCode" placeholder="例如 3F9A2C"></label>
+          <div class="row gap wrap">
+            <button id="btnPartyJoin" class="btn">加入</button>
+            <select id="partyMode" class="sel">
+              <option value="battlefield">大战场</option>
+              <option value="extract">搜打撤</option>
+              <option value="relay">中继破坏</option>
+            </select>
+            <button id="btnPartyQueue" class="btn primary">全队开始</button>
+          </div>
+          <label class="field"><span>邀请好友（呼号）</span><input id="partyInviteName" placeholder="好友呼号"></label>
+          <button id="btnPartyInvite" class="btn">发送邀请</button>
+        </div>
+      </section>
+
+      <!-- 好友 -->
+      <section class="pane" data-pane="friend">
+        <div class="card">
+          <div class="card-h">好友</div>
+          <div class="row gap">
+            <input id="friendInput" placeholder="输入呼号添加好友">
+            <button id="btnFriendAdd" class="btn">添加</button>
+          </div>
+          <div id="friendReq" class="friend-req"></div>
+          <div id="friendList" class="friend-list"></div>
+        </div>
+        <div class="card">
+          <div class="card-h">私聊</div>
+          <div id="dmLog" class="dm-log"></div>
+          <div class="row gap">
+            <input id="dmName" placeholder="对方呼号">
+            <input id="dmText" placeholder="消息">
+            <button id="btnDm" class="btn">发送</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 商店 -->
+      <section class="pane" data-pane="shop">
+        <div class="tabs sub" id="shopTabs">
+          <button class="tab on" data-shop="weapons">武器皮肤</button>
+          <button class="tab" data-shop="bodies">角色皮肤</button>
+          <button class="tab" data-shop="emotes">舞蹈表情</button>
+        </div>
+        <div id="shopGrid" class="grid"></div>
+      </section>
+
+      <!-- 活动 -->
+      <section class="pane" data-pane="event">
+        <div id="eventList" class="event-list"></div>
+      </section>
+
+      <!-- 排行榜 -->
+      <section class="pane" data-pane="rank">
+        <div class="tabs sub" id="lbTabs">
+          <button class="tab on" data-lb="points">段位分</button>
+          <button class="tab" data-lb="kills">总击杀</button>
+          <button class="tab" data-lb="currency">港币</button>
+          <button class="tab" data-lb="extract">撤离总值</button>
+          <button class="tab" data-lb="duel">单挑榜</button>
+        </div>
+        <div id="lbList" class="lb-list"></div>
+      </section>
+
+      <!-- 段位档案 -->
+      <section class="pane" data-pane="profile">
+        <div class="card" id="profileCard"></div>
+        <div class="card"><div class="card-h">最近对局</div><div id="historyList" class="board"></div></div>
+      </section>
+    </main>
+
+    <footer class="footbar">
+      <span class="dim small">v0.3 · 公网联机 · <a class="lnk" href="/download" id="lnkDownload">下载安卓安装包</a></span>
+    </footer>
+  </div>
+</div>
+
+<!-- ==================== 对局内 ==================== -->
+<div class="panel hidden lobby-panel" id="lobby">
+  <div class="lobby-head">
+    <div><b id="lobbyMode">—</b><span id="lobbyRoom" class="dim"></span></div>
+    <button id="btnLeave" class="btn ghost">退出对局</button>
+  </div>
+  <div class="roster" id="roster"></div>
+  <button id="btnDeploy" class="btn primary wide">部署</button>
+</div>
+
+<div class="panel hidden" id="result">
+  <h2 id="resultTitle">对局结束</h2>
+  <div id="resultReward" class="hint"></div>
+  <div id="resultBoard" class="board"></div>
+  <div class="row gap">
+    <button id="btnAgain" class="btn primary">再来一局</button>
+    <button id="btnToMenu" class="btn">回大厅</button>
+  </div>
+</div>
+
+<!-- 设置 -->
+<div id="settings" class="screen hidden">
+  <div class="panel">
+    <h2>设置</h2>
+    <label class="field"><span>鼠标灵敏度 <b id="vSens"></b></span><input id="sens" type="range" min="0.2" max="3" step="0.05"></label>
+    <label class="field"><span>画质</span>
+      <select id="quality">
+        <option value="low">低（省电）</option>
+        <option value="medium">中</option>
+        <option value="high">高</option>
+      </select>
+    </label>
+    <label class="field"><span>视野 FOV <b id="vFov"></b></span><input id="fov" type="range" min="60" max="100" step="1"></label>
+    <label class="field"><span>音量 <b id="vVol"></b></span><input id="vol" type="range" min="0" max="1" step="0.05"></label>
+    <label class="field row"><span>触屏辅助瞄准</span><input id="autoFire" type="checkbox"></label>
+    <label class="field row"><span>Y 轴反向</span><input id="invY" type="checkbox"></label>
+    <button id="btnCloseSettings" class="btn primary wide">完成</button>
+  </div>
+</div>
+
+<!-- ==================== HUD ==================== -->
+<div id="hud" class="hidden">
+  <div class="hud-top">
+    <div class="mode-chip" id="modeChip">—</div>
+    <div class="timer" id="timer">0:00</div>
+    <div class="objective" id="objective"></div>
+    <div class="scoreline" id="scoreline"></div>
+  </div>
+  <div class="killfeed" id="killfeed"></div>
+  <div class="banner hidden" id="adminBanner"></div>
+  <div class="party-hud" id="partyHud"></div>
+
+  <div class="crosshair" id="crosshair"><i></i><i></i><i></i><i></i></div>
+  <div class="hitmarker" id="hitmarker">✕</div>
+  <div class="dmgflash" id="dmgflash"></div>
+
+  <div class="hud-bot">
+    <div class="vitals">
+      <div class="hpbar"><i id="hpFill"></i><span id="hpText">100</span></div>
+      <div class="ammo"><b id="ammoMag">30</b><span id="ammoRes">/150</span><em id="wname">KR-7</em></div>
+    </div>
+    <div class="lootbox hidden" id="lootbox">
+      <div class="loot-line"><span>携带价值</span><b id="lootValue">0</b></div>
+      <div id="lootList" class="loot-list"></div>
+    </div>
+    <div class="minimap"><canvas id="mapCanvas" width="220" height="220"></canvas></div>
+  </div>
+
+  <div class="extract hidden" id="extractBar"><span>撤离中…</span><i></i></div>
+  <div class="toast" id="toast"></div>
+  <div class="prompt hidden" id="prompt">E · 搜箱</div>
+  <div class="reward" id="rewardPop"></div>
+
+  <div class="touch" id="touch">
+    <div class="stick left" id="stickL"><i></i></div>
+    <div class="stick right" id="stickR"><i></i></div>
+    <div class="tbtns">
+      <button class="tb fire" data-act="fire">开火</button>
+      <button class="tb" data-act="ads">瞄准</button>
+      <button class="tb" data-act="reload">换弹</button>
+      <button class="tb" data-act="jump">跳</button>
+      <button class="tb" data-act="crouch">蹲</button>
+      <button class="tb" data-act="interact">交互</button>
+      <button class="tb" data-act="sprint">跑</button>
+    </div>
+  </div>
+
+  <div class="emote-wheel hidden" id="emoteWheel"></div>
+  <button class="btn tiny ghost emote-btn" id="btnEmote">舞蹈 V</button>
+  <div class="chatbox" id="chatbox"></div>
+  <button class="btn tiny ghost chatbtn" id="btnChat">聊天</button>
+</div>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>
