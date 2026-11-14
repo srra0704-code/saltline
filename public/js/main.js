@@ -92,6 +92,7 @@ if (renderer) {
   } catch (e) { /* 探测失败无所谓 */ }
   canvas.addEventListener('webglcontextlost', (e) => {
     e.preventDefault();
+    contextLostCount++;
     try { reportClientError('contextlost', 'WebGL 上下文丢失（GPU 资源不足/驱动重置）', ''); } catch {}
     applySafeMode();
     setTimeout(() => {
@@ -269,9 +270,26 @@ console.error = (...args) => {
 };
 
 let renderCount = 0;
+let diagEl = null;
+function updateDiagOverlay() {
+  if (!DEBUG) return;
+  if (!diagEl) {
+    diagEl = document.createElement('div');
+    diagEl.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:120;background:rgba(0,0,0,.6);' +
+      'color:#7ddc8a;font:10px/1.5 ui-monospace,monospace;padding:4px 6px;border-radius:3px;max-width:60vw;white-space:pre-wrap';
+    document.body.appendChild(diagEl);
+  }
+  const info = renderer && renderer.info;
+  diagEl.textContent =
+    `q=${settings.quality} attempt=${rendererAttempt} compat=${compatLevel}\n` +
+    `tris=${info ? info.render.triangles : '-'} calls=${info ? info.render.calls : '-'} progs=${info && info.programs ? info.programs.length : '-'}\n` +
+    `gl=${(G.caps && G.caps.renderer || '').slice(0, 46)}\n` +
+    `renders=${renderCount} blackSamples=${blackSamples} lost=${contextLostCount} errs=${reportedErrors.size}`;
+}
 let shaderFailHandled = false;
 
 // 画面崩了（着色器错误 / 上下文丢失）→ 以兼容画质自动重载并回到对局
+let contextLostCount = 0;
 function hardRecover(reason) {
   const key = 'saltline.recoverCount';
   const n = Number(sessionStorage.getItem(key) || 0);
@@ -851,6 +869,7 @@ function tickFrame() {
     updateHUD();
     updatePartyHud();
     applyWeaponSkin();
+    updateDiagOverlay();
   }
 
   frameStep = 'render';
@@ -858,6 +877,7 @@ function tickFrame() {
     renderer.render(rootScene, camera);
     renderCount++;
     checkRenderHealth();
+    checkBlackFrame();
     clearRecoverFlags();
     // 上下文悄悄死了也自愈（有些设备不触发 contextlost 事件）
     if (renderCount % 120 === 0) {
@@ -866,6 +886,74 @@ function tickFrame() {
         if (!gl || gl.isContextLost()) hardRecover('上下文静默丢失');
       } catch {}
     }
+  }
+}
+
+let blackSamples = 0;
+let compatLevel = 0;
+let savedMaterials = null;
+let lastBlackCheck = 0;
+
+// 直接采帧缓冲：如果画面整片全黑，就逐级降级到“无光照兼容渲染”
+function checkBlackFrame() {
+  const now = performance.now();
+  if (now - lastBlackCheck < 2000) return;
+  lastBlackCheck = now;
+  let gl = null;
+  try { gl = renderer.getContext(); } catch { return; }
+  if (!gl || gl.isContextLost()) return;
+  try {
+    const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+    if (w < 8 || h < 8) return;
+    const sw = Math.min(64, w), sh = Math.min(36, h);
+    const px = new Uint8Array(sw * sh * 4);
+    gl.readPixels(((w - sw) / 2) | 0, ((h - sh) / 2) | 0, sw, sh, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    let maxV = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      const v = Math.max(px[i], px[i + 1], px[i + 2]);
+      if (v > maxV) maxV = v;
+      if (maxV > 10) break;
+    }
+    if (maxV <= 10) {
+      blackSamples++;
+      if (blackSamples === 3) applyCompatibilityRender('画面连续全黑');
+      if (blackSamples >= 8) {
+        reportClientError('allblack', '多级降级后画面仍然全黑（设备驱动级问题）', 'samples=' + blackSamples);
+        blackSamples = 0;
+      }
+    } else {
+      blackSamples = 0;
+    }
+  } catch (e) { /* readPixels 不被支持就算了 */ }
+}
+
+function applyCompatibilityRender(reason) {
+  compatLevel++;
+  reportClientError('compat' + compatLevel, `${reason} → 切到兼容渲染第 ${compatLevel} 级`, 'renderer=' + (G.caps && G.caps.renderer));
+  if (compatLevel === 1) {
+    // 第一级：关掉色调映射与雾，很多移动驱动在这两处出问题
+    try { renderer.toneMapping = THREE.NoToneMapping; } catch {}
+    try { if (rootScene.fog) rootScene.fog = null; } catch {}
+    return;
+  }
+  if (compatLevel === 2) {
+    // 第二级：全部换成无光照材质（能画出来就说明是光照/材质管线的问题）
+    try {
+      savedMaterials = new Map();
+      rootScene.traverse((o) => {
+        if (o.isMesh && o.material && !o.material.isMeshBasicMaterial) {
+          savedMaterials.set(o, o.material);
+          const c = o.material.color ? o.material.color.clone() : new THREE.Color(0x8d9aa3);
+          o.material = new THREE.MeshBasicMaterial({ color: c, fog: false });
+        }
+      });
+      if (!rootScene.fog) rootScene.fog = null;
+    } catch (e) { reportClientError('compat2', e.message, e.stack); }
+    return;
+  }
+  if (compatLevel >= 3) {
+    reportClientError('allblack', '兼容渲染也没能出画面，建议换浏览器/设备', 'renderer=' + (G.caps && G.caps.renderer));
+    showFatalBanner('你的设备驱动拒绝渲染 3D 画面。\n可以换 Chrome / 其他手机，或先把画质设为「低」再进。');
   }
 }
 

@@ -1,5 +1,5 @@
 // 离线外壳：首次加载后没有网络也能进菜单（联机仍需服务器）
-const CACHE = 'saltline-v3';
+const CACHE = 'saltline-v4';
 const SHELL = [
   '/', '/index.html', '/css/app.css', '/manifest.webmanifest',
   '/js/main.js', '/js/world3d.js', '/js/input.js', '/js/net.js',
