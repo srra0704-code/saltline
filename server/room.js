@@ -77,7 +77,15 @@ export class Room {
     this.players.delete(id);
   }
 
-  humanCount() { let n = 0; for (const p of this.players.values()) if (!p.bot) n++; return n; }
+  humanCount() {
+    let n = 0;
+    for (const p of this.players.values()) {
+      if (p.bot) continue;
+      if (p.ws && p.ws.readyState !== 1) continue;   // 已经断开的连接不算人
+      n++;
+    }
+    return n;
+  }
   totalCount() { return this.players.size; }
 
   fillBots() {
@@ -349,10 +357,11 @@ export class Room {
     if (this.mode.id === 'battlefield') this.stepBattlefield(dt);
     if (this.mode.id === 'battlefield') this.stepAirdrops(dt);
 
-    // 掉线超时
+    // 掉线超时：连接已断的立刻标记，长时间没消息的踢掉
     for (const p of this.players.values()) {
-      if (!p.bot && p.ws && p.ws.readyState !== 1) p.lastSeen = 0;
-      if (!p.bot && now() - p.lastSeen > 25000) p.ws && p.ws.close();
+      if (p.bot) continue;
+      if (p.ws && p.ws.readyState !== 1) { p.lastSeen = Math.min(p.lastSeen, now() - 30000); continue; }
+      if (now() - (p.lastSeen || 0) > 30000) { this.pushEvent({ k: 'timeout', name: p.name }); try { p.ws && p.ws.close(); } catch {} }
     }
 
     if (this.tickN % Math.round(TICK_HZ / SNAP_HZ) === 0) this.snapshot();

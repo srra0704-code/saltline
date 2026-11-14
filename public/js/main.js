@@ -25,27 +25,120 @@ function saveSettings() { localStorage.setItem(SKEY, JSON.stringify(settings)); 
 
 // ---------------- 渲染器 ----------------
 const canvas = $('gl');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: settings.quality !== 'low', powerPreference: 'high-performance' });
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
-renderer.shadowMap.enabled = settings.quality !== 'low';
+const DEBUG = /(\?|&)dbg=1/.test(location.search);
+const FORCED_QUALITY = new URLSearchParams(location.search).get('quality');
+const SAFE_MODE = sessionStorage.getItem('saltline.safeMode') === '1';
+const isTouch = (navigator.maxTouchPoints || 0) > 0 || matchMedia('(pointer: coarse)').matches;
+const FORCED_Q = new URLSearchParams(location.search).get('quality');
+if (FORCED_Q && ['low', 'medium', 'high'].includes(FORCED_Q)) settings.quality = FORCED_Q;
+if (SAFE_MODE) { settings.quality = 'low'; }
+// 手机/平板默认走省电画质（阴影 + 多光源 + 高像素比最容易把移动 GPU 干趴）
+if (isTouch && settings.qualityAuto !== false && !localStorage.getItem(SKEY)) {
+  settings.quality = 'low';
+}
+
+// 建 WebGL 上下文：不同 GPU/驱动对属性挑食，逐级降级重试
+function createRenderer() {
+  const attempts = [
+    { antialias: settings.quality !== 'low', powerPreference: 'high-performance', preserveDrawingBuffer: DEBUG },
+    { antialias: false, powerPreference: 'default', preserveDrawingBuffer: DEBUG },
+    { antialias: false, alpha: false, depth: true, stencil: false, powerPreference: 'default', failIfMajorPerformanceCaveat: false, preserveDrawingBuffer: DEBUG },
+  ];
+  let lastErr = null;
+  for (let i = 0; i < attempts.length; i++) {
+    try {
+      const r = new THREE.WebGLRenderer({ canvas, ...attempts[i] });
+      if (r.getContext()) { rendererAttempt = i; return r; }
+      lastErr = new Error('getContext 返回空');
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('无法创建 WebGL2 上下文');
+}
+
+let rendererAttempt = 0;
+let renderer;
+try {
+  renderer = createRenderer();
+} catch (e) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;inset:0;z-index:200;background:#0b0d0f;color:#e8e4da;padding:24px;' +
+    'font:14px/1.7 system-ui,sans-serif';
+  el.innerHTML = '<h2>画面启动失败</h2><p>你的浏览器没有给出可用的 WebGL2 上下文（多见于旧版内核、软件渲染或显卡驱动异常）。</p>' +
+    '<p>可以先用电脑或其他手机打开同一个地址；下面错误信息能帮我定位：</p><pre style="white-space:pre-wrap">' +
+    String(e && e.message).slice(0, 300) + '</pre>';
+  document.body.appendChild(el);
+  try { fetch('/api/health').catch(() => {}); } catch {}
+  // 允许 UI 继续（菜单仍可用），但不再渲染
+  window.__webglFailed = String(e && e.message);
+}
+
+if (renderer) {
+  // 显卡能力探测：varying / uniform 太少直接降级（这是移动端黑屏的常见原因）
+  try {
+    const gl = renderer.getContext();
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    G.caps = {
+      renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+      varyings: gl.getParameter(gl.MAX_VARYING_VECTORS),
+      fragUniforms: gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS),
+      vertUniforms: gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS),
+      maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+    };
+    if (G.caps.varyings < 32 || G.caps.fragUniforms < 512 || G.caps.vertUniforms < 256) {
+      settings.quality = 'low';
+      shaderFailHandled = true;
+      setTimeout(() => { try { applySafeMode(); } catch {} }, 300);
+    }
+  } catch (e) { /* 探测失败无所谓 */ }
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    try { reportClientError('contextlost', 'WebGL 上下文丢失（GPU 资源不足/驱动重置）', ''); } catch {}
+    applySafeMode();
+    setTimeout(() => {
+      try {
+        const gl = renderer.getContext();
+        if (!gl || gl.isContextLost()) hardRecover('WebGL 上下文丢失');
+      } catch { hardRecover('WebGL 上下文丢失'); }
+    }, 1200);
+  });
+  canvas.addEventListener('webglcontextrestored', () => {
+    try { reportClientError('contextrestored', 'WebGL 上下文已恢复', ''); } catch {}
+  });
+}
+if (renderer) {
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.35;
+  renderer.shadowMap.enabled = settings.quality !== 'low';
+}
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(settings.fov, innerWidth / innerHeight, 0.08, 400);
-const world = new World3D(renderer, settings.quality);
+// 场景与地图：即使显卡不可用也要保证大厅/联机可用，所以这里兜底
+const NULL_WORLD = {
+  scene: new THREE.Scene(), update() {}, setRelays() {}, setCP() {}, setSafeMode() {},
+  relays: [], cps: [], extracts: [],
+};
+let world = NULL_WORLD;
+let rootScene = world.scene;
+try {
+  world = new World3D(renderer, settings.quality);
+  rootScene = world.scene;
+} catch (e) {
+  try { reportClientError('world', '场景构建失败: ' + (e && e.message), e && e.stack); } catch {}
+}
 scene.add(camera);
-// 把 world 的 scene 作为主场景
-const rootScene = world.scene;
 const safeModeStripped = [];
 rootScene.add(camera);
 
 function applyQuality(q) {
+  if (SAFE_MODE) q = 'low';
   settings.quality = q;
-  const dpr = Math.min(devicePixelRatio || 1, q === 'low' ? 1 : q === 'high' ? 2 : 1.5);
+  if (!renderer) return;
+  const dpr = Math.min(devicePixelRatio || 1, q === 'low' ? 1 : q === 'high' ? 2 : 1.25);
   renderer.setPixelRatio(dpr);
   renderer.setSize(innerWidth, innerHeight, false);
-  renderer.shadowMap.enabled = q !== 'low';
+  renderer.shadowMap.enabled = q === 'high';
 }
 function onResize() {
   camera.aspect = innerWidth / innerHeight;
@@ -165,12 +258,49 @@ const _origError = console.error.bind(console);
 console.error = (...args) => {
   try {
     const text = args.map((a) => (a && a.message) ? a.message : String(a)).join(' ').slice(0, 600);
-    if (/THREE|shader|WebGL|varying|uniform|Sampler/i.test(text)) reportClientError('shader', text, '');
+    if (/Shader Error|VALIDATE_STATUS|program not valid/i.test(text)) {
+      reportClientError('shader', text, '');
+      onShaderFailure(text);
+    } else if (/THREE|shader|WebGL|varying|uniform|Sampler/i.test(text)) {
+      reportClientError('shader', text, '');
+    }
   } catch {}
   _origError(...args);
 };
 
 let renderCount = 0;
+let shaderFailHandled = false;
+
+// 画面崩了（着色器错误 / 上下文丢失）→ 以兼容画质自动重载并回到对局
+function hardRecover(reason) {
+  const key = 'saltline.recoverCount';
+  const n = Number(sessionStorage.getItem(key) || 0);
+  sessionStorage.setItem('saltline.safeMode', '1');
+  try {
+    const m = new URLSearchParams(location.search).get('mode') || localStorage.getItem('saltline.lastMode') || 'extract';
+    sessionStorage.setItem('saltline.rejoin', m);
+  } catch {}
+  reportClientError('recover', `${reason}（第 ${n + 1} 次自愈）`, '');
+  if (n >= 2) {
+    showFatalBanner('画面连续恢复失败：你的浏览器/显卡驱动可能不支持 WebGL2。\n可以换 Chrome/其他设备，或清理站点数据后重试。');
+    return;
+  }
+  sessionStorage.setItem(key, String(n + 1));
+  setTimeout(() => { try { location.reload(); } catch {} }, 600);
+}
+
+// 渲染正常跑满 6 秒后清掉恢复计数，避免一直降级
+function clearRecoverFlags() {
+  if (renderCount < 300) return;
+  sessionStorage.removeItem('saltline.recoverCount');
+  sessionStorage.setItem('saltline.renderedOk', '1');
+}
+function onShaderFailure(text) {
+  if (shaderFailHandled) return;
+  shaderFailHandled = true;
+  try { applySafeMode(); } catch {}
+  hardRecover('显卡着色器错误');
+}
 
 const controls = new Controls(canvas, { sens: settings.sens, invY: settings.invY });
 const net = new Net();
@@ -413,6 +543,7 @@ function addFeed(html, color = 'var(--alarm)') {
 function modeObjective() {
   const m = G.mode;
   if (!m) return '';
+  // 未进入对局时 HUD 不显示目标
   if (m.id === 'relay') {
     const left = G.relays.filter((r) => !r[2]).length;
     return `中继剩余 ${left}/3`;
@@ -516,7 +647,7 @@ function drawMinimap() {
   }
   for (const p of G.players.values()) {
     if (!p.alive) continue;
-    const col = p.team === G.team && G.mode.id === 'battlefield' ? '#5aa9ff'
+    const col = p.team === G.team && G.mode?.id === 'battlefield' ? '#5aa9ff'
       : p.team === 3 ? '#ff5a40' : p.team === 2 ? '#ff5a40' : '#5aa9ff';
     mctx.fillStyle = col;
     mctx.beginPath(); mctx.arc(px(p.sim.x), pz(p.sim.z), 2.5, 0, 7); mctx.fill();
@@ -546,7 +677,7 @@ function applySnap(m) {
   const t = performance.now();
   G.serverTimeLeft = m.tl ?? G.serverTimeLeft;
   if (m.tk) G.tickets = m.tk;
-  if (m.rl) { G.relays = m.rl; world.setRelays(m.rl); }
+  if (m.rl) { G.relays = m.rl; try { world.setRelays(m.rl); } catch {} }
   if (m.cp) { G.cps = m.cp.map((c) => {
     const d = CP_DATA.find((x) => x.id === c[0]);
     return [c[0], c[1], c[2], c[3], d ? d.x : 0, d ? d.z : 0];
@@ -672,6 +803,7 @@ function frame() {
 }
 
 function tickFrame() {
+  controls.sample();   // 键盘 WASD/Shift 在这里同步进输入状态（之前漏了，桌面端走不动）
   const now = performance.now();
   let dt = Math.min(0.05, (now - last) / 1000);
   last = now;
@@ -722,15 +854,26 @@ function tickFrame() {
   }
 
   frameStep = 'render';
-  renderer.render(rootScene, camera);
-  renderCount++;
-  checkRenderHealth();
+  if (renderer) {
+    renderer.render(rootScene, camera);
+    renderCount++;
+    checkRenderHealth();
+    clearRecoverFlags();
+    // 上下文悄悄死了也自愈（有些设备不触发 contextlost 事件）
+    if (renderCount % 120 === 0) {
+      try {
+        const gl = renderer.getContext();
+        if (!gl || gl.isContextLost()) hardRecover('上下文静默丢失');
+      } catch {}
+    }
+  }
 }
 
 let healthChecked = 0;
 function checkRenderHealth() {
   // 看完 2 秒还没画出任何三角形 → 自动降到安全画质并上报（手机 GPU 常见）
   if (healthChecked >= 3 || renderCount < 120) return;
+  if (!renderer) return;
   const tris = renderer.info && renderer.info.render ? renderer.info.render.triangles : -1;
   if (tris > 0) { healthChecked = 3; return; }
   healthChecked++;
@@ -744,7 +887,7 @@ function checkRenderHealth() {
 function applySafeMode() {
   settings.quality = 'low';
   try { applyQuality('low'); } catch {}
-  world.setSafeMode && world.setSafeMode();
+  try { world.setSafeMode && world.setSafeMode(); } catch {}
   for (const l of safeModeStripped) { try { rootScene.remove(l); } catch {} }
   toast('已自动切换到省电画质');
 }
@@ -956,6 +1099,7 @@ const lobby = initLobby({ net, settings, saveSettings, play: (mode) => enterGame
 
 function enterGame(mode) {
   Audio.init();
+  try { localStorage.setItem('saltline.lastMode', mode); } catch {}
   const name = ($('callsign').value || '').trim() || settings.name || 'OPERATOR';
   settings.name = name; saveSettings();
   if (!net.connected) {
@@ -1093,7 +1237,49 @@ updateAmmoUI();
 requestAnimationFrame(frame);
 
 // 调试入口
-window.__saltline = { G, world, net, settings, controls, lobby };
+window.__saltline = { G, world, net, settings, controls, lobby, renderer, camera, rootScene };
+window.__dbg = {
+  renderer, camera, scene: rootScene, world, rendererAttempt,
+  snapshot() {
+    const info = renderer.info;
+    return {
+      state: G.state, mode: G.mode && G.mode.id, alive: G.alive, hp: G.hp,
+      pos: [G.pos.x, G.pos.y, G.pos.z].map((v) => +v.toFixed(2)),
+      yaw: +G.yaw.toFixed(2), ads: +G.ads.toFixed(2),
+      players: G.players.size, renders: renderCount,
+      triangles: info.render.triangles, calls: info.render.calls,
+      programs: info.programs ? info.programs.length : -1, rendererAttempt,
+      sceneChildren: rootScene.children.length,
+      camPos: camera.position.toArray().map((v) => +v.toFixed(2)),
+      quality: settings.quality, touch: controls.touchMode,
+      errors: [...reportedErrors].slice(0, 10),
+    };
+  },
+  // 直接从帧缓冲读像素再编码 PNG（比 toDataURL 可靠）
+  frame(scale = 1) {
+    if (!renderer) return null;
+    renderer.render(rootScene, camera);
+    const gl = renderer.getContext();
+    const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+    const px = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const cw = Math.max(1, Math.floor(w * scale)), ch = Math.max(1, Math.floor(h * scale));
+    const c2 = document.createElement('canvas');
+    c2.width = cw; c2.height = ch;
+    const ctx = c2.getContext('2d');
+    const img = ctx.createImageData(cw, ch);
+    for (let y = 0; y < ch; y++) {
+      const srcY = h - 1 - Math.floor(y / scale);
+      for (let x = 0; x < cw; x++) {
+        const srcX = Math.floor(x / scale);
+        const si = (srcY * w + srcX) * 4, di = (y * cw + x) * 4;
+        img.data[di] = px[si]; img.data[di + 1] = px[si + 1]; img.data[di + 2] = px[si + 2]; img.data[di + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return c2.toDataURL('image/png');
+  },
+};
 
 // 注册 Service Worker（PWA 安装 / 离线外壳）
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {

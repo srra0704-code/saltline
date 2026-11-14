@@ -314,6 +314,7 @@ wss.on('connection', (ws) => {
   ws.on('message', (data) => {
     let m;
     try { m = JSON.parse(data.toString()); } catch { return; }
+    if (ws._player) ws._player.lastSeen = Date.now();   // 有消息就算活着
     try {
       if (social.handle(ws, m)) return;
       handleGame(ws, m);
@@ -347,6 +348,9 @@ function handleGame(ws, m) {
       else if (m.a === 'use') r.useItem(p, m.kind);
       else if (m.a === 'weapon') { if (WEAPONS[m.w] && p.alive) { p.weapon = m.w; p.ammo = 0; r.startReload(p); } }
       else if (m.a === 'respawn') r.respawn(p);
+      else if (m.a === 'dbgTp' && (process.env.SALTLINE_DEV === '1' || process.env.ALLOW_DEBUG_TP === '1')) {
+        p.x = Number(m.x) || p.x; p.z = Number(m.z) || p.z; p.y = 0;   // 仅测试环境可用
+      }
       break;
     }
     case 'chat': {

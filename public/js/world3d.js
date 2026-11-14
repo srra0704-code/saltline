@@ -3,8 +3,8 @@ import * as THREE from '../vendor/three.module.js';
 import { WORLD, BOUNDS, SEA_Y, RELAYS, CP, EXTRACTS } from '../../shared/world.js';
 
 const COL = {
-  zenith: 0x0a1216, horizon: 0x2b1f18, fog: 0x3a4046,
-  ground: 0x23272a, sea: 0x0e1a20, steel: 0x8d9aa3, signal: 0xffb347, alarm: 0xff5a40, blue: 0x5aa9ff,
+  zenith: 0x101c26, horizon: 0x6d4526, fog: 0x4a4f55,
+  ground: 0x3a4046, sea: 0x16232c, steel: 0x8d9aa3, signal: 0xffb347, alarm: 0xff5a40, blue: 0x5aa9ff,
 };
 
 const CONTAINER_TONES = [0x8c3b2a, 0x2f5a4a, 0x33465a, 0x6b5a2a, 0x4b4f55, 0x7a3b3b, 0x2b4a5a];
@@ -13,7 +13,7 @@ export class World3D {
   constructor(renderer, quality = 'medium') {
     this.quality = quality;
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(COL.fog, quality === 'low' ? 0.016 : 0.012);
+    this.scene.fog = new THREE.FogExp2(COL.fog, quality === 'low' ? 0.012 : 0.009);
     this.scene.background = new THREE.Color(COL.zenith);
     this.time = 0;
     this.animated = [];
@@ -33,11 +33,11 @@ export class World3D {
   }
 
   buildLights() {
-    const hemi = new THREE.HemisphereLight(0x38505e, 0x1a1512, 0.85);
+    const hemi = new THREE.HemisphereLight(0x4f6d80, 0x2a231c, 1.5);
     this.scene.add(hemi);
-    const key = new THREE.DirectionalLight(0xffc07a, 1.15);
+    const key = new THREE.DirectionalLight(0xffc98c, 1.9);
     key.position.set(-40, 48, -22);
-    if (this.quality !== 'low') {
+    if (this.quality === 'high') {
       key.castShadow = true;
       key.shadow.mapSize.set(1024, 1024);
       const c = key.shadow.camera;
@@ -45,10 +45,10 @@ export class World3D {
       key.shadow.bias = -0.0012;
     }
     this.scene.add(key);
-    const fill = new THREE.DirectionalLight(0x4a6f8a, 0.45);
+    const fill = new THREE.DirectionalLight(0x6d94ad, 0.9);
     fill.position.set(50, 20, 40);
     this.scene.add(fill);
-    this.scene.add(new THREE.AmbientLight(0x2a3038, 0.9));
+    this.scene.add(new THREE.AmbientLight(0x4a525c, 1.15));
   }
 
   buildGround() {
@@ -57,11 +57,11 @@ export class World3D {
     const geo = new THREE.PlaneGeometry(w, d, 1, 1);
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshStandardMaterial({
-      color: COL.ground, roughness: 0.42, metalness: 0.12,
+      color: COL.ground, roughness: 0.36, metalness: 0.2,
     });
     const ground = new THREE.Mesh(geo, mat);
     ground.position.set((BOUNDS.minX + BOUNDS.maxX) / 2, 0, (BOUNDS.minZ + BOUNDS.maxZ) / 2);
-    ground.receiveShadow = this.quality !== 'low';
+    ground.receiveShadow = this.quality === 'high';
     this.scene.add(ground);
 
     // 集装箱区的网格线（低多边形地面细节）
@@ -116,8 +116,8 @@ export class World3D {
     const geo = new THREE.BoxGeometry(1, 1, 1);
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.62, metalness: 0.34 });
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
-    mesh.castShadow = this.quality !== 'low';
-    mesh.receiveShadow = this.quality !== 'low';
+    mesh.castShadow = this.quality === 'high';
+    mesh.receiveShadow = this.quality === 'high';
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const col = new THREE.Color();
@@ -126,7 +126,7 @@ export class World3D {
       m.compose(new THREE.Vector3(c.x, c.y, c.z), q, new THREE.Vector3(sx, 2.59, sz));
       mesh.setMatrixAt(i, m);
       const tone = CONTAINER_TONES[Math.floor(c.tone * CONTAINER_TONES.length) % CONTAINER_TONES.length];
-      col.setHex(tone).multiplyScalar(0.75 + (i % 5) * 0.05);
+      col.setHex(tone).multiplyScalar(1.15 + (i % 5) * 0.06);
       mesh.setColorAt(i, col);
     });
     mesh.instanceMatrix.needsUpdate = true;
@@ -283,8 +283,8 @@ export class World3D {
       arm.position.set(x + 0.8, 9, z); this.scene.add(arm);
       const head = new THREE.Mesh(new THREE.BoxGeometry(1, 0.24, 0.6), bulbMat);
       head.position.set(x + 1.5, 8.9, z); this.scene.add(head);
-      if (this.quality === 'high') {
-        const l = new THREE.PointLight(0xffcf9a, 3.4, 26, 2);
+      if (this.quality !== 'low' && this.pointLights.length < 5) {
+        const l = new THREE.PointLight(0xffcf9a, 4.2, 30, 2);
         l.position.set(x + 1.5, 8.6, z);
         this.scene.add(l);
         this.pointLights.push(l);
@@ -327,7 +327,7 @@ export class World3D {
     this.quality = 'low';
     for (const l of this.pointLights) { try { l.parent && l.parent.remove(l); } catch {} }
     this.pointLights.length = 0;
-    if (this.scene.fog) this.scene.fog.density = 0.012;
+    if (this.scene.fog) this.scene.fog.density = 0.01;
     this.scene.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
     this.scene.add(new THREE.AmbientLight(0x8899aa, 1.2));
     return true;

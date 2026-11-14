@@ -235,9 +235,10 @@ export function initLobby({ net, settings, saveSettings, play }) {
     const d = t.dataset;
     if (d.claim) net.send({ t: 'mission', k: 'claim', id: d.claim });
     else if (d.buy) {
+      const isEmote = d.emote === '1' || d.emote === 'true';   // 注意：属性值是字符串
       const owned = L.profile && [...L.profile.skins, ...L.profile.emotes].includes(d.buy);
       if (!owned) net.send({ t: 'shop', k: 'buy', id: d.buy });
-      else if (!d.emote) net.send({ t: 'shop', k: 'equip', id: d.buy });
+      else if (!isEmote) net.send({ t: 'shop', k: 'equip', id: d.buy });
       else toast('舞蹈表情：进入对局后按 V 使用');
     } else if (d.accept) net.send({ t: 'social', k: 'friendAccept', id: d.accept });
     else if (d.reject) net.send({ t: 'social', k: 'friendRemove', id: d.reject });
@@ -333,8 +334,14 @@ export function initLobby({ net, settings, saveSettings, play }) {
         toast(`对局结算：${m.win ? '胜利' : '结束'} · +${m.earned} 港币 · 段位${m.points >= 0 ? '+' : ''}${m.points}（${m.rank.name}）`, 3200);
         break;
       case 'notice': toast(`【${m.title}】${m.text}`, 4000); break;
-      case 'friendRequest': toast(`${m.from.name} 请求加好友`); break;
-      case 'friendAccepted': toast(`${m.by.name} 接受了你的好友请求`); break;
+      case 'friendRequest':
+        toast(`${m.from.name} 请求加好友`);
+        net.send({ t: 'social', k: 'refresh' });   // 拉一次档案，请求列表才会出现
+        break;
+      case 'friendAccepted':
+        toast(`${m.by.name} 接受了你的好友请求`);
+        net.send({ t: 'social', k: 'refresh' });
+        break;
       case 'friendList': if (L.profile) { L.profile.friendsList = m.friends; renderFriends(); } break;
       case 'presence': break;
       case 'partyUpdate': if (L.profile) { L.profile.party = m.party; renderParty(); } break;
@@ -354,6 +361,9 @@ export function initLobby({ net, settings, saveSettings, play }) {
   });
 
   net.on('banned', () => toast('该账号已被封禁', 6000));
+
+  // 启动时绑定页签 / 子页签
+  bindTabs();
 
   // ---------- 对外 ----------
   return {
